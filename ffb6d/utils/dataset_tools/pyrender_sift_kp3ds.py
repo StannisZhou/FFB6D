@@ -1,18 +1,19 @@
 #!/usr/bin/env mdl
-import os
-import cv2
-import math
-import trimesh
-import pyrender
-import numpy as np
-import pickle as pkl
-from tqdm import tqdm
-from scipy import stats
-from glob import glob
 import json
-from utils import PoseUtils, MeshUtils, SysUtils, ImgPcldUtils
-from fps.fps_utils import farthest_point_sampling
+import math
+import os
+import pickle as pkl
+from glob import glob
 
+import cv2
+import numpy as np
+import pyrender
+import trimesh
+from scipy import stats
+from tqdm import tqdm
+
+from fps.fps_utils import farthest_point_sampling
+from utils import ImgPcldUtils, MeshUtils, PoseUtils, SysUtils
 
 pose_utils = PoseUtils()
 mesh_utils = MeshUtils()
@@ -67,7 +68,7 @@ def extract_one_scene_textured_kp3ds(args, color, depth, o2c_pose, i_cam):
     kps, des = extractor.detectAndCompute(gray, None)
 
     kp_xys = np.array([kp.pt for kp in kps]).astype(np.int32)
-    if (kp_xys.shape[0] == 0):
+    if kp_xys.shape[0] == 0:
         return None
 
     kp_idxs = (kp_xys[:, 1], kp_xys[:, 0])
@@ -110,9 +111,7 @@ def extract_textured_kp3ds(args, mesh_pth, sv_kp=True):
     r = mesh_utils.get_r(bbox)
 
     sph_r = r / 0.035 * 0.18
-    positions = pose_utils.CameraPositions(
-        args.n_longitude, args.n_latitude, sph_r
-    )
+    positions = pose_utils.CameraPositions(args.n_longitude, args.n_latitude, sph_r)
     cam_poses = [pose_utils.getCameraPose(pos) for pos in positions]
     kp3ds = []
     for i_cam, cam_pose in enumerate(cam_poses):
@@ -120,13 +119,17 @@ def extract_textured_kp3ds(args, mesh_pth, sv_kp=True):
         o2c_pose = pose_utils.get_o2c_pose_cv(cam_pose, obj_pose)
         # transform to object coordinate system
         color, depth = rnder_one_scene(args, mesh_pth, obj_pose, cam_pose)
-        frame_kp3ds = extract_one_scene_textured_kp3ds(args, color, depth, o2c_pose, i_cam)
+        frame_kp3ds = extract_one_scene_textured_kp3ds(
+            args, color, depth, o2c_pose, i_cam
+        )
         if kp3ds is not None:
             kp3ds += list(frame_kp3ds)
         # pclds += list(data['dpt_pcld'])
 
     if sv_kp:
-        with open("%s_%s_textured_kp3ds.obj" % (args.obj_name, args.extractor), 'w') as of:
+        with open(
+            "%s_%s_textured_kp3ds.obj" % (args.obj_name, args.extractor), 'w'
+        ) as of:
             for p3d in kp3ds:
                 print('v ', p3d[0], p3d[1], p3d[2], file=of)
     return kp3ds
@@ -140,54 +143,64 @@ def get_farthest_3d(p3ds, num=8, init_center=False):
 
 def test():
     from argparse import ArgumentParser
+
     parser = ArgumentParser()
     parser.add_argument(
-        "--obj_name", type=str, default="cracker_box",
-        help="Object name."
+        "--obj_name", type=str, default="cracker_box", help="Object name."
     )
     parser.add_argument(
-        "--obj_pth", type=str, default="example_mesh/003_cracker_box/textured.obj",
-        help="path to object ply."
+        "--obj_pth",
+        type=str,
+        default="example_mesh/003_cracker_box/textured.obj",
+        help="path to object ply.",
     )
     parser.add_argument(
-        '--debug', action="store_true",
-        help="To show the generated images or not."
+        '--debug', action="store_true", help="To show the generated images or not."
     )
     parser.add_argument(
-        '--vis', action="store_true",
-        help="visulaize generated images."
+        '--vis', action="store_true", help="visulaize generated images."
     )
     parser.add_argument(
-        '--h', type=int, default=480,
-        help="height of rendered RGBD images."
+        '--h', type=int, default=480, help="height of rendered RGBD images."
     )
     parser.add_argument(
-        '--w', type=int, default=640,
-        help="width of rendered RGBD images."
+        '--w', type=int, default=640, help="width of rendered RGBD images."
     )
     parser.add_argument(
-        '--K', type=int, default=[700, 0, 320, 0, 700, 240, 0, 0, 1],
-        help="camera intrinsix."
+        '--K',
+        type=int,
+        default=[700, 0, 320, 0, 700, 240, 0, 0, 1],
+        help="camera intrinsix.",
     )
     parser.add_argument(
-        '--scale2m', type=float, default=1.0,
-        help="scale to transform unit of object to be in meter."
+        '--scale2m',
+        type=float,
+        default=1.0,
+        help="scale to transform unit of object to be in meter.",
     )
     parser.add_argument(
-        '--n_longitude', type=int, default=3,
-        help="number of longitude on sphere to sample."
+        '--n_longitude',
+        type=int,
+        default=3,
+        help="number of longitude on sphere to sample.",
     )
     parser.add_argument(
-        '--n_latitude', type=int, default=3,
-        help="number of latitude on sphere to sample."
+        '--n_latitude',
+        type=int,
+        default=3,
+        help="number of latitude on sphere to sample.",
     )
     parser.add_argument(
-        '--extractor', type=str, default="ORB",
-        help="2D keypoint extractor, SIFTO or ORB"
+        '--extractor',
+        type=str,
+        default="ORB",
+        help="2D keypoint extractor, SIFTO or ORB",
     )
     parser.add_argument(
-        '--textured_3dkps_fd', type=str, default="textured_3D_keypoints",
-        help="folder to store textured 3D keypoints."
+        '--textured_3dkps_fd',
+        type=str,
+        default="textured_3D_keypoints",
+        help="folder to store textured 3D keypoints.",
     )
     args = parser.parse_args()
     args.K = np.array(args.K).reshape(3, 3)

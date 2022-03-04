@@ -1,13 +1,14 @@
 #!/usr/bin/env mdl
-import os
-import cv2
 import math
+import os
+
+import cv2
 import numpy as np
-from scipy import stats
 from plyfile import PlyData
+from scipy import stats
 
 
-class SysUtils():
+class SysUtils:
     def __init__(self):
         pass
 
@@ -16,25 +17,26 @@ class SysUtils():
             os.system("mkdir -p {}".format(pth))
 
 
-class MeshUtils():
+class MeshUtils:
     def __init__(self):
         pass
 
-    def get_p3ds_from_obj(self, pth, scale2m=1.):
+    def get_p3ds_from_obj(self, pth, scale2m=1.0):
         xyz_lst = []
         with open(pth, 'r') as f:
             for line in f.readlines():
                 if 'v ' not in line or line[0] != 'v':
                     continue
                 xyz_str = [
-                    item.strip() for item in line.split(' ')
+                    item.strip()
+                    for item in line.split(' ')
                     if len(item.strip()) > 0 and 'v' not in item
                 ]
                 xyz = np.array(xyz_str[0:3]).astype(np.float)
                 xyz_lst.append(xyz)
         return np.array(xyz_lst) / scale2m
 
-    def load_ply_model(self, model_path, scale2m=1., ret_dict=True):
+    def load_ply_model(self, model_path, scale2m=1.0, ret_dict=True):
         ply = PlyData.read(model_path)
         data = ply.elements[0].data
         x = data['x']
@@ -62,7 +64,7 @@ class MeshUtils():
             return ret_dict
 
     # Read object vertexes from ply file
-    def get_p3ds_from_ply(self, ply_pth, scale2m=1.):
+    def get_p3ds_from_ply(self, ply_pth, scale2m=1.0):
         print("loading p3ds from ply:", ply_pth)
         ply = PlyData.read(ply_pth)
         data = ply.elements[0].data
@@ -90,16 +92,18 @@ class MeshUtils():
         min_x, max_x = pcld[:, 0].min(), pcld[:, 0].max()
         min_y, max_y = pcld[:, 1].min(), pcld[:, 1].max()
         min_z, max_z = pcld[:, 2].min(), pcld[:, 2].max()
-        bbox = np.array([
-            [min_x, min_y, min_z],
-            [min_x, min_y, max_z],
-            [min_x, max_y, min_z],
-            [min_x, max_y, max_z],
-            [max_x, min_y, min_z],
-            [max_x, min_y, max_z],
-            [max_x, max_y, min_z],
-            [max_x, max_y, max_z],
-        ])
+        bbox = np.array(
+            [
+                [min_x, min_y, min_z],
+                [min_x, min_y, max_z],
+                [min_x, max_y, min_z],
+                [min_x, max_y, max_z],
+                [max_x, min_y, min_z],
+                [max_x, min_y, max_z],
+                [max_x, max_y, min_z],
+                [max_x, max_y, max_z],
+            ]
+        )
         if small:
             center = np.mean(bbox, 0)
             bbox = (bbox - center[None, :]) * 2.0 / 3.0 + center[None, :]
@@ -107,7 +111,7 @@ class MeshUtils():
 
     # Compute the radius of object
     def get_r(self, bbox):
-        return np.linalg.norm(bbox[7,:] - bbox[0,:]) / 2.0
+        return np.linalg.norm(bbox[7, :] - bbox[0, :]) / 2.0
 
     # Compute the center of object
     def get_centers_3d(self, corners_3d):
@@ -115,8 +119,7 @@ class MeshUtils():
         return centers_3d
 
 
-
-class ImgPcldUtils():
+class ImgPcldUtils:
     def __init__(self):
         pass
 
@@ -126,9 +129,7 @@ class ImgPcldUtils():
         for p2d in p2ds:
             p2d[0] = np.clip(p2d[0], 0, w)
             p2d[1] = np.clip(p2d[1], 0, h)
-            img = cv2.circle(
-                img, (p2d[0], p2d[1]), r, color, -1
-            )
+            img = cv2.circle(img, (p2d[0], p2d[1]), r, color, -1)
         return img
 
     def project_p3ds(self, p3d, cam_scale=1000.0, K=None):
@@ -176,13 +177,13 @@ class ImgPcldUtils():
 
         x, y = np.meshgrid(np.arange(w), np.arange(h))
         ones = np.ones((h, w), dtype=np.float32)
-        x2d = np.stack((x, y, ones), axis=2).reshape(w*h, 3)
+        x2d = np.stack((x, y, ones), axis=2).reshape(w * h, 3)
 
         # backproj
         R = np.dot(Kinv, x2d.transpose())
 
         # compute 3D points
-        X = R * np.tile(dpt.reshape(1, w*h), (3, 1))
+        X = R * np.tile(dpt.reshape(1, w * h), (3, 1))
         X = np.array(X).transpose()
 
         X = X.reshape(h, w, 3)
@@ -193,7 +194,7 @@ class ImgPcldUtils():
 
     def filter_pcld(self, pcld):
         """
-            pcld: [N, c] point cloud.
+        pcld: [N, c] point cloud.
         """
         if len(pcld.shape) > 2:
             pcld = pcld.reshape(-1, 3)
@@ -204,7 +205,7 @@ class ImgPcldUtils():
         return pcld, msk
 
 
-class PoseUtils():
+class PoseUtils:
     def __init__(self):
         pass
 
@@ -227,7 +228,7 @@ class PoseUtils():
         R_bcam2cv = np.array([(1, 0, 0), (0, -1, 0), (0, 0, -1)])
 
         # Use matrix_world instead to account for all constraints
-        location, rotation = camera_pose[:3, 3], camera_pose[:3,:3]
+        location, rotation = camera_pose[:3, 3], camera_pose[:3, :3]
         R_world2bcam = rotation.T
 
         # Convert camera location to translation vector used in coordinate changes
@@ -240,7 +241,7 @@ class PoseUtils():
 
         # put into 4x4 matrix
         RT = np.eye(4)
-        RT[:3,:3] = R_world2cv
+        RT[:3, :3] = R_world2cv
         RT[:3, 3] = T_world2cv
         return RT
 
@@ -254,55 +255,65 @@ class PoseUtils():
         o2c = np.matmul(w2c, obj_pose)
         return o2c
 
-    def isRotationMatrix(self, R) :
+    def isRotationMatrix(self, R):
         Rt = np.transpose(R)
         shouldBeIdentity = np.dot(Rt, R)
-        I = np.identity(3, dtype = R.dtype)
+        I = np.identity(3, dtype=R.dtype)
         n = np.linalg.norm(I - shouldBeIdentity)
         return n < 1e-6
 
     # Calculates rotation matrix to euler angles
     # The result is the same as MATLAB except the order
     # of the euler angles ( x and z are swapped ).
-    def rotationMatrixToEulerAngles(self, R) :
+    def rotationMatrixToEulerAngles(self, R):
 
-        assert(self.isRotationMatrix(R))
+        assert self.isRotationMatrix(R)
 
-        sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
+        sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
 
         singular = sy < 1e-6
 
-        if  not singular :
-            x = math.atan2(R[2,1] , R[2,2])
-            y = math.atan2(-R[2,0], sy)
-            z = math.atan2(R[1,0], R[0,0])
-        else :
-            x = math.atan2(-R[1,2], R[1,1])
-            y = math.atan2(-R[2,0], sy)
+        if not singular:
+            x = math.atan2(R[2, 1], R[2, 2])
+            y = math.atan2(-R[2, 0], sy)
+            z = math.atan2(R[1, 0], R[0, 0])
+        else:
+            x = math.atan2(-R[1, 2], R[1, 1])
+            y = math.atan2(-R[2, 0], sy)
             z = 0
 
         return np.array([x, y, z])
 
     # Calculates Rotation Matrix given euler angles.
-    def eulerAnglesToRotationMatrix(self, theta) :
-        R_x = np.array([[1,         0,                  0                   ],
-                        [0,         math.cos(theta[0]), -math.sin(theta[0]) ],
-                        [0,         math.sin(theta[0]), math.cos(theta[0])  ]
-                        ])
-        R_y = np.array([[math.cos(theta[1]),    0,      math.sin(theta[1])  ],
-                        [0,                     1,      0                   ],
-                        [-math.sin(theta[1]),   0,      math.cos(theta[1])  ]
-                        ])
-        R_z = np.array([[math.cos(theta[2]),    -math.sin(theta[2]),    0],
-                        [math.sin(theta[2]),    math.cos(theta[2]),     0],
-                        [0,                     0,                      1]
-                        ])
-        R = np.dot(R_z, np.dot( R_y, R_x ))
+    def eulerAnglesToRotationMatrix(self, theta):
+        R_x = np.array(
+            [
+                [1, 0, 0],
+                [0, math.cos(theta[0]), -math.sin(theta[0])],
+                [0, math.sin(theta[0]), math.cos(theta[0])],
+            ]
+        )
+        R_y = np.array(
+            [
+                [math.cos(theta[1]), 0, math.sin(theta[1])],
+                [0, 1, 0],
+                [-math.sin(theta[1]), 0, math.cos(theta[1])],
+            ]
+        )
+        R_z = np.array(
+            [
+                [math.cos(theta[2]), -math.sin(theta[2]), 0],
+                [math.sin(theta[2]), math.cos(theta[2]), 0],
+                [0, 0, 1],
+            ]
+        )
+        R = np.dot(R_z, np.dot(R_y, R_x))
         return R
+
     # vim: ts=4 sw=4 sts=4 expandtab
 
     def sample_sphere(self, num_samples, cls='ape'):
-        """ sample angles from the sphere
+        """sample angles from the sphere
         reference: https://zhuanlan.zhihu.com/p/25988652?group_id=828963677192491008
         """
         flat_objects = ['037_scissors', '051_large_clamp', '052_extra_large_clamp']
@@ -312,23 +323,25 @@ class PoseUtils():
             begin_elevation = 0
         ratio = (begin_elevation + 90) / 180
         num_points = int(num_samples // (1 - ratio))
-        phi = (np.sqrt(5) - 1.0) / 2.
+        phi = (np.sqrt(5) - 1.0) / 2.0
         azimuths = []
         elevations = []
         for n in range(num_points - num_samples, num_points):
-            z = 2. * n / num_points - 1.
+            z = 2.0 * n / num_points - 1.0
             azimuths.append(np.rad2deg(2 * np.pi * n * phi % (2 * np.pi)))
             elevations.append(np.rad2deg(np.arcsin(z)))
         return np.array(azimuths), np.array(elevations)
 
     def sample_poses(self, num_samples):
         s = np.sqrt(2) / 2
-        cam_pose = np.array([
-            [0.0, -s, s, 0.50],
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, s, s, 0.60],
-            [0.0, 0.0, 0.0, 1.0],
-        ])
+        cam_pose = np.array(
+            [
+                [0.0, -s, s, 0.50],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, s, s, 0.60],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
         eulers = self.rotationMatrixToEulerAngles(cam_pose[:3, :3]).reshape(1, -1)
         eulers = np.repeat(eulers, num_samples, axis=0)
         translations = cam_pose[:3, 3].reshape(1, 3)
@@ -352,9 +365,9 @@ class PoseUtils():
 
     def CameraPositions(self, n1, n2, r):
         'sample on a ball'
-        theta_list = np.linspace(0.1, np.pi, n1+1)
+        theta_list = np.linspace(0.1, np.pi, n1 + 1)
         theta_list = theta_list[:-1]
-        phi_list = np.linspace(0, 2*np.pi, n2+1)
+        phi_list = np.linspace(0, 2 * np.pi, n2 + 1)
         phi_list = phi_list[:-1]
 
         def product(a_lst, b_lst):
@@ -367,24 +380,24 @@ class PoseUtils():
         cpList = product(theta_list, phi_list)
         PositionList = []
         for theta, phi in cpList:
-            x = r*math.sin(theta)*math.cos(phi)
-            y = r*math.sin(theta)*math.sin(phi)
-            z = r*math.cos(theta)
+            x = r * math.sin(theta) * math.cos(phi)
+            y = r * math.sin(theta) * math.sin(phi)
+            z = r * math.cos(theta)
             PositionList.append((x, y, z))
         return PositionList
 
     def getCameraPose(self, T):
-        '''
+        """
         OpenGL camera coordinates, the camera z-axis points away from the scene, the x-axis points right in image space, and the y-axis points up in image space.
         see https://pyrender.readthedocs.io/en/latest/examples/cameras.html
-        '''
+        """
         z_direct = np.array(T)
-        z_direct = z_direct/np.linalg.norm(z_direct)
+        z_direct = z_direct / np.linalg.norm(z_direct)
         g_direct = np.array([0, 0, 1])
         x_direct = -np.cross(z_direct, g_direct)
-        x_direct = x_direct/np.linalg.norm(x_direct)
+        x_direct = x_direct / np.linalg.norm(x_direct)
         y_direct = np.cross(z_direct, x_direct)
-        y_direct = y_direct/np.linalg.norm(y_direct)
+        y_direct = y_direct / np.linalg.norm(y_direct)
 
         pose = np.array([x_direct, y_direct, z_direct])
         pose = np.transpose(pose)
@@ -393,4 +406,3 @@ class PoseUtils():
         camera_pose[:3, :3] = pose
         camera_pose[:3, 3] = T
         return camera_pose
-
