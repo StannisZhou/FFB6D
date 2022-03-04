@@ -1,44 +1,36 @@
-from __future__ import (
-    division,
-    absolute_import,
-    with_statement,
-    print_function,
-    unicode_literals,
-)
-import os
-import time
-import tqdm
-import shutil
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals, with_statement)
+
 import argparse
-import resource
-import numpy as np
-import cv2
+import os
 import pickle as pkl
+import resource
+import shutil
+import time
 from collections import namedtuple
 
+import cv2
+import numpy as np
 import torch
+import torch.backends.cudnn as cudnn
+import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_sched
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import CyclicLR
-import torch.backends.cudnn as cudnn
-from tensorboardX import SummaryWriter
-
-from common import Config, ConfigRandLA
-import datasets.ycb.ycb_dataset as dataset_desc
-from utils.pvn3d_eval_utils_kpls import TorchEval
-from utils.basic_utils import Basic_Utils
-
-import models.pytorch_utils as pt_utils
-from models.ffb6d import FFB6D
-from models.loss import OFLoss, FocalLoss
-
-from apex.parallel import DistributedDataParallel
-from apex.parallel import convert_syncbn_model
+import tqdm
 from apex import amp
 from apex.multi_tensor_apply import multi_tensor_applier
+from apex.parallel import DistributedDataParallel, convert_syncbn_model
+from tensorboardX import SummaryWriter
+from torch.optim.lr_scheduler import CyclicLR
+from torch.utils.data import DataLoader
 
+import datasets.ycb.ycb_dataset as dataset_desc
+import models.pytorch_utils as pt_utils
+from common import Config, ConfigRandLA
+from models.ffb6d import FFB6D
+from models.loss import FocalLoss, OFLoss
+from utils.basic_utils import Basic_Utils
+from utils.pvn3d_eval_utils_kpls import TorchEval
 
 config = Config()
 bs_utils = Basic_Utils(config)
@@ -49,46 +41,52 @@ resource.setrlimit(resource.RLIMIT_NOFILE, (30000, rlimit[1]))
 
 color_lst = [(0, 0, 0)]
 for i in range(config.n_objects):
-    col_mul = (255 * 255 * 255) // (i+1)
-    color = (col_mul//(255*255), (col_mul//255) % 255, col_mul % 255)
+    col_mul = (255 * 255 * 255) // (i + 1)
+    color = (col_mul // (255 * 255), (col_mul // 255) % 255, col_mul % 255)
     color_lst.append(color)
 
 
 parser = argparse.ArgumentParser(description="Arg parser")
 parser.add_argument(
-    "-weight_decay", type=float, default=0,
+    "-weight_decay",
+    type=float,
+    default=0,
     help="L2 regularization coeff [default: 0.0]",
 )
 parser.add_argument(
-    "-lr", type=float, default=1e-2,
-    help="Initial learning rate [default: 1e-2]"
+    "-lr", type=float, default=1e-2, help="Initial learning rate [default: 1e-2]"
 )
 parser.add_argument(
-    "-lr_decay", type=float, default=0.5,
+    "-lr_decay",
+    type=float,
+    default=0.5,
     help="Learning rate decay gamma [default: 0.5]",
 )
 parser.add_argument(
-    "-decay_step", type=float, default=2e5,
+    "-decay_step",
+    type=float,
+    default=2e5,
     help="Learning rate decay step [default: 20]",
 )
 parser.add_argument(
-    "-bn_momentum", type=float, default=0.9,
+    "-bn_momentum",
+    type=float,
+    default=0.9,
     help="Initial batch norm momentum [default: 0.9]",
 )
 parser.add_argument(
-    "-bn_decay", type=float, default=0.5,
+    "-bn_decay",
+    type=float,
+    default=0.5,
     help="Batch norm momentum decay gamma [default: 0.5]",
 )
 parser.add_argument(
-    "-checkpoint", type=str, default=None,
-    help="Checkpoint to start from"
+    "-checkpoint", type=str, default=None, help="Checkpoint to start from"
 )
 parser.add_argument(
     "-epochs", type=int, default=1000, help="Number of epochs to train for"
 )
-parser.add_argument(
-    "-eval_net", action='store_true', help="whether is to eval net."
-)
+parser.add_argument("-eval_net", action='store_true', help="whether is to eval net.")
 parser.add_argument("-test", action="store_true")
 parser.add_argument("-test_pose", action="store_true")
 parser.add_argument("-test_gt", action="store_true")
@@ -99,15 +97,17 @@ parser.add_argument('-debug', action='store_true')
 parser.add_argument('--local_rank', type=int, default=0)
 parser.add_argument('--gpu_id', type=list, default=[0, 1, 2, 3, 4, 5, 6, 7])
 parser.add_argument('-n', '--nodes', default=1, type=int, metavar='N')
-parser.add_argument('-g', '--gpus', default=8, type=int,
-                    help='number of gpus per node')
-parser.add_argument('-nr', '--nr', default=0, type=int,
-                    help='ranking within the nodes')
+parser.add_argument('-g', '--gpus', default=8, type=int, help='number of gpus per node')
+parser.add_argument('-nr', '--nr', default=0, type=int, help='ranking within the nodes')
 parser.add_argument('--gpu', type=str, default="0,1,2,3,4,5,6,7")
 parser.add_argument('--deterministic', action='store_true')
 parser.add_argument('--keep_batchnorm_fp32', default=True)
-parser.add_argument('--opt_level', default="O0", type=str,
-                    help='opt level of apex mix presision trainig.')
+parser.add_argument(
+    '--opt_level',
+    default="O0",
+    type=str,
+    help='opt level of apex mix presision trainig.',
+)
 
 args = parser.parse_args()
 
@@ -130,8 +130,9 @@ def get_lr(optimizer):
 def checkpoint_state(model=None, optimizer=None, best_prec=None, epoch=None, it=None):
     optim_state = optimizer.state_dict() if optimizer is not None else None
     if model is not None:
-        if isinstance(model, torch.nn.DataParallel) or \
-                isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        if isinstance(model, torch.nn.DataParallel) or isinstance(
+            model, torch.nn.parallel.DistributedDataParallel
+        ):
             model_state = model.module.state_dict()
         else:
             model_state = model.state_dict()
@@ -149,8 +150,11 @@ def checkpoint_state(model=None, optimizer=None, best_prec=None, epoch=None, it=
 
 
 def save_checkpoint(
-        state, is_best, filename="checkpoint", bestname="model_best",
-        bestname_pure='ffb6d_best'
+    state,
+    is_best,
+    filename="checkpoint",
+    bestname="model_best",
+    bestname_pure='ffb6d_best',
 ):
     filename = "{}.pth.tar".format(filename)
     torch.save(state, filename)
@@ -205,13 +209,21 @@ def view_labels(rgb_chw, cld_cn, labels, K=config.intrinsic_matrix['ycb_K1']):
 
 
 def model_fn_decorator(
-    criterion, criterion_of, test=False,
+    criterion,
+    criterion_of,
+    test=False,
 ):
     teval = TorchEval()
 
     def model_fn(
-        model, data, it=0, epoch=0, is_eval=False, is_test=False, finish_test=False,
-        test_pose=False
+        model,
+        data,
+        it=0,
+        epoch=0,
+        is_eval=False,
+        is_test=False,
+        finish_test=False,
+        test_pose=False,
     ):
         if finish_test:
             teval.cal_auc()
@@ -245,7 +257,9 @@ def model_fn_decorator(
             ).sum()
 
             loss_lst = [
-                (loss_rgbd_seg, 2.0), (loss_kp_of, 1.0), (loss_ctr_of, 1.0),
+                (loss_rgbd_seg, 2.0),
+                (loss_kp_of, 1.0),
+                (loss_ctr_of, 1.0),
             ]
             loss = sum([ls * w for ls, w in loss_lst])
 
@@ -257,7 +271,7 @@ def model_fn_decorator(
                 'loss_kp_of': loss_kp_of.item(),
                 'loss_ctr_of': loss_ctr_of.item(),
                 'loss_all': loss.item(),
-                'loss_target': loss.item()
+                'loss_target': loss.item(),
             }
             acc_dict = {
                 'acc_rgbd': acc_rgbd.item(),
@@ -275,26 +289,47 @@ def model_fn_decorator(
                 if not args.test_gt:
                     # eval pose from point cloud prediction.
                     teval.eval_pose_parallel(
-                        cld, cu_dt['rgb'], cls_rgbd, end_points['pred_ctr_ofs'],
-                        cu_dt['ctr_targ_ofst'], labels, epoch, cu_dt['cls_ids'],
-                        cu_dt['RTs'], end_points['pred_kp_ofs'],
-                        cu_dt['kp_3ds'], cu_dt['ctr_3ds'], min_cnt=1,
-                        use_ctr_clus_flter=True, use_ctr=True, ds='ycb'
+                        cld,
+                        cu_dt['rgb'],
+                        cls_rgbd,
+                        end_points['pred_ctr_ofs'],
+                        cu_dt['ctr_targ_ofst'],
+                        labels,
+                        epoch,
+                        cu_dt['cls_ids'],
+                        cu_dt['RTs'],
+                        end_points['pred_kp_ofs'],
+                        cu_dt['kp_3ds'],
+                        cu_dt['ctr_3ds'],
+                        min_cnt=1,
+                        use_ctr_clus_flter=True,
+                        use_ctr=True,
+                        ds='ycb',
                     )
                 else:
                     # test GT labels, keypoint and center point offset
                     gt_ctr_ofs = cu_dt['ctr_targ_ofst'].unsqueeze(2).permute(0, 2, 1, 3)
                     gt_kp_ofs = cu_dt['kp_targ_ofst'].permute(0, 2, 1, 3)
                     teval.eval_pose_parallel(
-                        cld, cu_dt['rgb'], labels, gt_ctr_ofs,
-                        cu_dt['ctr_targ_ofst'], labels, epoch, cu_dt['cls_ids'],
-                        cu_dt['RTs'], gt_kp_ofs, cu_dt['kp_3ds'], cu_dt['ctr_3ds'],
-                        min_cnt=1, use_ctr_clus_flter=True, use_ctr=True, ds='ycb'
+                        cld,
+                        cu_dt['rgb'],
+                        labels,
+                        gt_ctr_ofs,
+                        cu_dt['ctr_targ_ofst'],
+                        labels,
+                        epoch,
+                        cu_dt['cls_ids'],
+                        cu_dt['RTs'],
+                        gt_kp_ofs,
+                        cu_dt['kp_3ds'],
+                        cu_dt['ctr_3ds'],
+                        min_cnt=1,
+                        use_ctr_clus_flter=True,
+                        use_ctr=True,
+                        ds='ycb',
                     )
 
-        return (
-            end_points, loss, info_dict
-        )
+        return (end_points, loss, info_dict)
 
     return model_fn
 
@@ -331,7 +366,13 @@ class Trainer(object):
         bnm_scheduler=None,
         viz=None,
     ):
-        self.model, self.model_fn, self.optimizer, self.lr_scheduler, self.bnm_scheduler = (
+        (
+            self.model,
+            self.model_fn,
+            self.optimizer,
+            self.lr_scheduler,
+            self.bnm_scheduler,
+        ) = (
             model,
             model_fn,
             optimizer,
@@ -350,9 +391,7 @@ class Trainer(object):
         eval_dict = {}
         total_loss = 0.0
         count = 1
-        for i, data in tqdm.tqdm(
-            enumerate(d_loader), leave=False, desc="val"
-        ):
+        for i, data in tqdm.tqdm(enumerate(d_loader), leave=False, desc="val"):
             count += 1
             self.optimizer.zero_grad()
 
@@ -381,8 +420,12 @@ class Trainer(object):
         if is_test:
             if test_pose:
                 self.model_fn(
-                    self.model, data, is_eval=True, is_test=is_test, finish_test=True,
-                    test_pose=test_pose
+                    self.model,
+                    data,
+                    is_eval=True,
+                    is_test=is_test,
+                    finish_test=True,
+                    test_pose=test_pose,
                 )
             seg_res_fn = 'seg_res'
             for k, v in acc_dict.items():
@@ -501,16 +544,14 @@ class Trainer(object):
                                     ),
                                     is_best,
                                     filename=self.checkpoint_name,
-                                    bestname=self.best_name+'_%.4f' % val_loss,
-                                    bestname_pure=self.best_name
+                                    bestname=self.best_name + '_%.4f' % val_loss,
+                                    bestname_pure=self.best_name,
                                 )
                                 info_p = self.checkpoint_name.replace(
                                     '.pth.tar', '_epoch.txt'
                                 )
                                 os.system(
-                                    'echo {} {} >> {}'.format(
-                                        it, val_loss, info_p
-                                    )
+                                    'echo {} {} >> {}'.format(it, val_loss, info_p)
                                 )
 
                         pbar = tqdm.tqdm(
@@ -543,27 +584,40 @@ def train():
         train_ds = dataset_desc.Dataset('train')
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
         train_loader = torch.utils.data.DataLoader(
-            train_ds, batch_size=config.mini_batch_size, shuffle=False,
-            drop_last=True, num_workers=4, sampler=train_sampler, pin_memory=True
+            train_ds,
+            batch_size=config.mini_batch_size,
+            shuffle=False,
+            drop_last=True,
+            num_workers=4,
+            sampler=train_sampler,
+            pin_memory=True,
         )
 
         val_ds = dataset_desc.Dataset('test')
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds)
         val_loader = torch.utils.data.DataLoader(
-            val_ds, batch_size=config.val_mini_batch_size, shuffle=False,
-            drop_last=False, num_workers=4, sampler=val_sampler
+            val_ds,
+            batch_size=config.val_mini_batch_size,
+            shuffle=False,
+            drop_last=False,
+            num_workers=4,
+            sampler=val_sampler,
         )
     else:
         test_ds = dataset_desc.Dataset('test')
         test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
-            num_workers=20
+            test_ds,
+            batch_size=config.test_mini_batch_size,
+            shuffle=False,
+            num_workers=20,
         )
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
-        n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
-        n_kps=config.n_keypoints
+        n_classes=config.n_objects,
+        n_pts=config.n_sample_points,
+        rndla_cfg=rndla_cfg,
+        n_kps=config.n_keypoints,
     )
     model = convert_syncbn_model(model)
     device = torch.device('cuda:{}'.format(args.local_rank))
@@ -574,7 +628,9 @@ def train():
     )
     opt_level = args.opt_level
     model, optimizer = amp.initialize(
-        model, optimizer, opt_level=opt_level,
+        model,
+        optimizer,
+        opt_level=opt_level,
     )
 
     # default value
@@ -594,22 +650,33 @@ def train():
 
     if not args.eval_net:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank,
-            find_unused_parameters=True
+            model,
+            device_ids=[args.local_rank],
+            output_device=args.local_rank,
+            find_unused_parameters=True,
         )
         clr_div = 6
         lr_scheduler = CyclicLR(
-            optimizer, base_lr=1e-5, max_lr=1e-3,
+            optimizer,
+            base_lr=1e-5,
+            max_lr=1e-3,
             cycle_momentum=False,
-            step_size_up=config.n_total_epoch * train_ds.minibatch_per_epoch // clr_div // args.gpus,
-            step_size_down=config.n_total_epoch * train_ds.minibatch_per_epoch // clr_div // args.gpus,
-            mode='triangular'
+            step_size_up=config.n_total_epoch
+            * train_ds.minibatch_per_epoch
+            // clr_div
+            // args.gpus,
+            step_size_down=config.n_total_epoch
+            * train_ds.minibatch_per_epoch
+            // clr_div
+            // args.gpus,
+            mode='triangular',
         )
     else:
         lr_scheduler = None
 
     bnm_lmbd = lambda it: max(
-        args.bn_momentum * args.bn_decay ** (int(it * config.mini_batch_size / args.decay_step)),
+        args.bn_momentum
+        * args.bn_decay ** (int(it * config.mini_batch_size / args.decay_step)),
         bnm_clip,
     )
     bnm_scheduler = pt_utils.BNMomentumScheduler(
@@ -620,12 +687,14 @@ def train():
 
     if args.eval_net:
         model_fn = model_fn_decorator(
-            FocalLoss(gamma=2), OFLoss(),
+            FocalLoss(gamma=2),
+            OFLoss(),
             args.test,
         )
     else:
         model_fn = model_fn_decorator(
-            FocalLoss(gamma=2).to(device), OFLoss().to(device),
+            FocalLoss(gamma=2).to(device),
+            OFLoss().to(device),
             args.test,
         )
 
@@ -650,10 +719,15 @@ def train():
         print("\nUse time: ", end - start, 's')
     else:
         trainer.train(
-            it, start_epoch, config.n_total_epoch, train_loader, None,
-            val_loader, best_loss=best_loss,
+            it,
+            start_epoch,
+            config.n_total_epoch,
+            train_loader,
+            None,
+            val_loader,
+            best_loss=best_loss,
             tot_iter=config.n_total_epoch * train_ds.minibatch_per_epoch // args.gpus,
-            clr_div=clr_div
+            clr_div=clr_div,
         )
 
         if start_epoch == config.n_total_epoch:

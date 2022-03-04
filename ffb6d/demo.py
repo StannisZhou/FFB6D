@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-from __future__ import (
-    division,
-    absolute_import,
-    with_statement,
-    print_function,
-    unicode_literals,
-)
-import os
-import tqdm
-import cv2
-import torch
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals, with_statement)
+
 import argparse
-import torch.nn as nn
-import numpy as np
+import os
 import pickle as pkl
+
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+import tqdm
+
 from common import Config, ConfigRandLA
-from models.ffb6d import FFB6D
-from datasets.ycb.ycb_dataset import Dataset as YCB_Dataset
 from datasets.linemod.linemod_dataset import Dataset as LM_Dataset
-from utils.pvn3d_eval_utils_kpls import cal_frame_poses, cal_frame_poses_lm
+from datasets.ycb.ycb_dataset import Dataset as YCB_Dataset
+from models.ffb6d import FFB6D
 from utils.basic_utils import Basic_Utils
+from utils.pvn3d_eval_utils_kpls import cal_frame_poses, cal_frame_poses_lm
+
 try:
     from neupeak.utils.webcv2 import imshow, waitKey
 except ImportError:
@@ -27,21 +26,21 @@ except ImportError:
 
 
 parser = argparse.ArgumentParser(description="Arg parser")
+parser.add_argument("-checkpoint", type=str, default=None, help="Checkpoint to eval")
 parser.add_argument(
-    "-checkpoint", type=str, default=None, help="Checkpoint to eval"
+    "-dataset",
+    type=str,
+    default="linemod",
+    help="Target dataset, ycb or linemod. (linemod as default).",
 )
 parser.add_argument(
-    "-dataset", type=str, default="linemod",
-    help="Target dataset, ycb or linemod. (linemod as default)."
+    "-cls",
+    type=str,
+    default="ape",
+    help="Target object to eval in LineMOD dataset. (ape, benchvise, cam, can,"
+    + "cat, driller, duck, eggbox, glue, holepuncher, iron, lamp, phone)",
 )
-parser.add_argument(
-    "-cls", type=str, default="ape",
-    help="Target object to eval in LineMOD dataset. (ape, benchvise, cam, can," +
-    "cat, driller, duck, eggbox, glue, holepuncher, iron, lamp, phone)"
-)
-parser.add_argument(
-    "-show", action='store_true', help="View from imshow or not."
-)
+parser.add_argument("-show", action='store_true', help="View from imshow or not.")
 args = parser.parse_args()
 
 if args.dataset == "ycb":
@@ -102,14 +101,26 @@ def cal_view_pred_pose(model, data, epoch=0, obj_id=-1):
         pcld = cu_dt['cld_rgb_nrm'][:, :3, :].permute(0, 2, 1).contiguous()
         if args.dataset == "ycb":
             pred_cls_ids, pred_pose_lst, _ = cal_frame_poses(
-                pcld[0], classes_rgbd[0], end_points['pred_ctr_ofs'][0],
-                end_points['pred_kp_ofs'][0], True, config.n_objects, True,
-                None, None
+                pcld[0],
+                classes_rgbd[0],
+                end_points['pred_ctr_ofs'][0],
+                end_points['pred_kp_ofs'][0],
+                True,
+                config.n_objects,
+                True,
+                None,
+                None,
             )
         else:
             pred_pose_lst = cal_frame_poses_lm(
-                pcld[0], classes_rgbd[0], end_points['pred_ctr_ofs'][0],
-                end_points['pred_kp_ofs'][0], True, config.n_objects, False, obj_id
+                pcld[0],
+                classes_rgbd[0],
+                end_points['pred_ctr_ofs'][0],
+                end_points['pred_kp_ofs'][0],
+                True,
+                config.n_objects,
+                False,
+                obj_id,
             )
             pred_cls_ids = np.array([[1]])
 
@@ -159,26 +170,23 @@ def main():
         test_ds = LM_Dataset('test', cls_type=args.cls)
         obj_id = config.lm_obj_dict[args.cls]
     test_loader = torch.utils.data.DataLoader(
-        test_ds, batch_size=config.test_mini_batch_size, shuffle=False,
-        num_workers=20
+        test_ds, batch_size=config.test_mini_batch_size, shuffle=False, num_workers=20
     )
 
     rndla_cfg = ConfigRandLA
     model = FFB6D(
-        n_classes=config.n_objects, n_pts=config.n_sample_points, rndla_cfg=rndla_cfg,
-        n_kps=config.n_keypoints
+        n_classes=config.n_objects,
+        n_pts=config.n_sample_points,
+        rndla_cfg=rndla_cfg,
+        n_kps=config.n_keypoints,
     )
     model.cuda()
 
     # load status from checkpoint
     if args.checkpoint is not None:
-        load_checkpoint(
-            model, None, filename=args.checkpoint[:-8]
-        )
+        load_checkpoint(model, None, filename=args.checkpoint[:-8])
 
-    for i, data in tqdm.tqdm(
-        enumerate(test_loader), leave=False, desc="val"
-    ):
+    for i, data in tqdm.tqdm(enumerate(test_loader), leave=False, desc="val"):
         cal_view_pred_pose(model, data, epoch=i, obj_id=obj_id)
 
 

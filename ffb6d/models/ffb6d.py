@@ -1,22 +1,26 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.cnn.pspnet import PSPNet
+
 import models.pytorch_utils as pt_utils
+from models.cnn.pspnet import PSPNet
 from models.RandLA.RandLANet import Network as RandLANet
 
-
 psp_models = {
-    'resnet18': lambda: PSPNet(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'),
-    'resnet34': lambda: PSPNet(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet34'),
-    'resnet50': lambda: PSPNet(sizes=(1, 2, 3, 6), psp_size=2048, deep_features_size=1024, backend='resnet50'),
+    'resnet18': lambda: PSPNet(
+        sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'
+    ),
+    'resnet34': lambda: PSPNet(
+        sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet34'
+    ),
+    'resnet50': lambda: PSPNet(
+        sizes=(1, 2, 3, 6), psp_size=2048, deep_features_size=1024, backend='resnet50'
+    ),
 }
 
 
 class FFB6D(nn.Module):
-    def __init__(
-        self, n_classes, n_pts, rndla_cfg, n_kps=8
-    ):
+    def __init__(self, n_classes, n_pts, rndla_cfg, n_kps=8):
         super().__init__()
 
         # ######################## prepare stages#########################
@@ -29,19 +33,22 @@ class FFB6D(nn.Module):
 
         self.cnn_pre_stages = nn.Sequential(
             cnn.feats.conv1,  # stride = 2, [bs, c, 240, 320]
-            cnn.feats.bn1, cnn.feats.relu,
-            cnn.feats.maxpool  # stride = 2, [bs, 64, 120, 160]
+            cnn.feats.bn1,
+            cnn.feats.relu,
+            cnn.feats.maxpool,  # stride = 2, [bs, 64, 120, 160]
         )
         self.rndla_pre_stages = rndla.fc0
 
         # ####################### downsample stages#######################
-        self.cnn_ds_stages = nn.ModuleList([
-            cnn.feats.layer1,    # stride = 1, [bs, 64, 120, 160]
-            cnn.feats.layer2,    # stride = 2, [bs, 128, 60, 80]
-            # stride = 1, [bs, 128, 60, 80]
-            nn.Sequential(cnn.feats.layer3, cnn.feats.layer4),
-            nn.Sequential(cnn.psp, cnn.drop_1)   # [bs, 1024, 60, 80]
-        ])
+        self.cnn_ds_stages = nn.ModuleList(
+            [
+                cnn.feats.layer1,  # stride = 1, [bs, 64, 120, 160]
+                cnn.feats.layer2,  # stride = 2, [bs, 128, 60, 80]
+                # stride = 1, [bs, 128, 60, 80]
+                nn.Sequential(cnn.feats.layer3, cnn.feats.layer4),
+                nn.Sequential(cnn.psp, cnn.drop_1),  # [bs, 1024, 60, 80]
+            ]
+        )
         self.ds_sr = [4, 8, 8, 8]
 
         self.rndla_ds_stages = rndla.dilated_res_blocks
@@ -55,42 +62,46 @@ class FFB6D(nn.Module):
         for i in range(4):
             self.ds_fuse_r2p_pre_layers.append(
                 pt_utils.Conv2d(
-                    self.ds_rgb_oc[i], self.ds_rndla_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.ds_rgb_oc[i], self.ds_rndla_oc[i], kernel_size=(1, 1), bn=True
                 )
             )
             self.ds_fuse_r2p_fuse_layers.append(
                 pt_utils.Conv2d(
-                    self.ds_rndla_oc[i]*2, self.ds_rndla_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.ds_rndla_oc[i] * 2,
+                    self.ds_rndla_oc[i],
+                    kernel_size=(1, 1),
+                    bn=True,
                 )
             )
 
             self.ds_fuse_p2r_pre_layers.append(
                 pt_utils.Conv2d(
-                    self.ds_rndla_oc[i], self.ds_rgb_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.ds_rndla_oc[i], self.ds_rgb_oc[i], kernel_size=(1, 1), bn=True
                 )
             )
             self.ds_fuse_p2r_fuse_layers.append(
                 pt_utils.Conv2d(
-                    self.ds_rgb_oc[i]*2, self.ds_rgb_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.ds_rgb_oc[i] * 2,
+                    self.ds_rgb_oc[i],
+                    kernel_size=(1, 1),
+                    bn=True,
                 )
             )
 
         # ###################### upsample stages #############################
-        self.cnn_up_stages = nn.ModuleList([
-            nn.Sequential(cnn.up_1, cnn.drop_2),  # [bs, 256, 120, 160]
-            nn.Sequential(cnn.up_2, cnn.drop_2),  # [bs, 64, 240, 320]
-            nn.Sequential(cnn.final),  # [bs, 64, 240, 320]
-            nn.Sequential(cnn.up_3, cnn.final)  # [bs, 64, 480, 640]
-        ])
+        self.cnn_up_stages = nn.ModuleList(
+            [
+                nn.Sequential(cnn.up_1, cnn.drop_2),  # [bs, 256, 120, 160]
+                nn.Sequential(cnn.up_2, cnn.drop_2),  # [bs, 64, 240, 320]
+                nn.Sequential(cnn.final),  # [bs, 64, 240, 320]
+                nn.Sequential(cnn.up_3, cnn.final),  # [bs, 64, 480, 640]
+            ]
+        )
         self.up_rgb_oc = [256, 64, 64]
         self.up_rndla_oc = []
         for j in range(rndla_cfg.num_layers):
             if j < 3:
-                self.up_rndla_oc.append(self.ds_rndla_oc[-j-2])
+                self.up_rndla_oc.append(self.ds_rndla_oc[-j - 2])
             else:
                 self.up_rndla_oc.append(self.ds_rndla_oc[0])
 
@@ -104,27 +115,29 @@ class FFB6D(nn.Module):
         for i in range(n_fuse_layer):
             self.up_fuse_r2p_pre_layers.append(
                 pt_utils.Conv2d(
-                    self.up_rgb_oc[i], self.up_rndla_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.up_rgb_oc[i], self.up_rndla_oc[i], kernel_size=(1, 1), bn=True
                 )
             )
             self.up_fuse_r2p_fuse_layers.append(
                 pt_utils.Conv2d(
-                    self.up_rndla_oc[i]*2, self.up_rndla_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.up_rndla_oc[i] * 2,
+                    self.up_rndla_oc[i],
+                    kernel_size=(1, 1),
+                    bn=True,
                 )
             )
 
             self.up_fuse_p2r_pre_layers.append(
                 pt_utils.Conv2d(
-                    self.up_rndla_oc[i], self.up_rgb_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.up_rndla_oc[i], self.up_rgb_oc[i], kernel_size=(1, 1), bn=True
                 )
             )
             self.up_fuse_p2r_fuse_layers.append(
                 pt_utils.Conv2d(
-                    self.up_rgb_oc[i]*2, self.up_rgb_oc[i], kernel_size=(1, 1),
-                    bn=True
+                    self.up_rgb_oc[i] * 2,
+                    self.up_rgb_oc[i],
+                    kernel_size=(1, 1),
+                    bn=True,
                 )
             )
 
@@ -141,7 +154,7 @@ class FFB6D(nn.Module):
         )
 
         self.ctr_ofst_layer = (
-            pt_utils.Seq(self.up_rndla_oc[-1]+self.up_rgb_oc[-1])
+            pt_utils.Seq(self.up_rndla_oc[-1] + self.up_rgb_oc[-1])
             .conv1d(128, bn=True, activation=nn.ReLU())
             .conv1d(128, bn=True, activation=nn.ReLU())
             .conv1d(128, bn=True, activation=nn.ReLU())
@@ -149,11 +162,11 @@ class FFB6D(nn.Module):
         )
 
         self.kp_ofst_layer = (
-            pt_utils.Seq(self.up_rndla_oc[-1]+self.up_rgb_oc[-1])
+            pt_utils.Seq(self.up_rndla_oc[-1] + self.up_rgb_oc[-1])
             .conv1d(128, bn=True, activation=nn.ReLU())
             .conv1d(128, bn=True, activation=nn.ReLU())
             .conv1d(128, bn=True, activation=nn.ReLU())
-            .conv1d(n_kps*3, activation=None)
+            .conv1d(n_kps * 3, activation=None)
         )
 
     @staticmethod
@@ -173,7 +186,9 @@ class FFB6D(nn.Module):
             feature, 2, pool_idx.unsqueeze(1).repeat(1, feature.shape[1], 1)
         ).contiguous()
         pool_features = pool_features.reshape(batch_size, d, -1, num_neigh)
-        pool_features = pool_features.max(dim=3, keepdim=True)[0]  # batch*channel*npoints*1
+        pool_features = pool_features.max(dim=3, keepdim=True)[
+            0
+        ]  # batch*channel*npoints*1
         return pool_features
 
     @staticmethod
@@ -190,18 +205,21 @@ class FFB6D(nn.Module):
         interpolated_features = torch.gather(
             feature, 2, interp_idx.unsqueeze(1).repeat(1, feature.shape[1], 1)
         ).contiguous()
-        interpolated_features = interpolated_features.unsqueeze(3)  # batch*channel*npoints*1
+        interpolated_features = interpolated_features.unsqueeze(
+            3
+        )  # batch*channel*npoints*1
         return interpolated_features
 
     def _break_up_pc(self, pc):
         xyz = pc[:, :3, :].transpose(1, 2).contiguous()
-        features = (
-            pc[:, 3:, :].contiguous() if pc.size(1) > 3 else None
-        )
+        features = pc[:, 3:, :].contiguous() if pc.size(1) > 3 else None
         return xyz, features
 
     def forward(
-        self, inputs, end_points=None, scale=1,
+        self,
+        inputs,
+        end_points=None,
+        scale=1,
     ):
         """
         Params:
@@ -215,6 +233,7 @@ class FFB6D(nn.Module):
         Returns:
             end_points:
         """
+        breakpoint()
         # ###################### prepare stages #############################
         if not end_points:
             end_points = {}
@@ -237,7 +256,9 @@ class FFB6D(nn.Module):
             f_encoder_i = self.rndla_ds_stages[i_ds](
                 p_emb, inputs['cld_xyz%d' % i_ds], inputs['cld_nei_idx%d' % i_ds]
             )
-            f_sampled_i = self.random_sample(f_encoder_i, inputs['cld_sub_idx%d' % i_ds])
+            f_sampled_i = self.random_sample(
+                f_encoder_i, inputs['cld_sub_idx%d' % i_ds]
+            )
             p_emb0 = f_sampled_i
             if i_ds == 0:
                 ds_emb.append(f_encoder_i)
@@ -254,7 +275,7 @@ class FFB6D(nn.Module):
 
             # fuse rgb feature to point feature
             r2p_emb = self.random_sample(
-                rgb_emb0.reshape(bs, c, hr*wr, 1), inputs['r2p_ds_nei_idx%d' % i_ds]
+                rgb_emb0.reshape(bs, c, hr * wr, 1), inputs['r2p_ds_nei_idx%d' % i_ds]
             ).view(bs, c, -1, 1)
             r2p_emb = self.ds_fuse_r2p_pre_layers[i_ds](r2p_emb)
             p_emb = self.ds_fuse_r2p_fuse_layers[i_ds](
@@ -264,14 +285,14 @@ class FFB6D(nn.Module):
 
         # ###################### decoding stages #############################
         n_up_layers = len(self.rndla_up_stages)
-        for i_up in range(n_up_layers-1):
+        for i_up in range(n_up_layers - 1):
             # decode rgb upsampled feature
             rgb_emb0 = self.cnn_up_stages[i_up](rgb_emb)
             bs, c, hr, wr = rgb_emb0.size()
 
             # decode point cloud upsampled feature
             f_interp_i = self.nearest_interpolation(
-                p_emb, inputs['cld_interp_idx%d' % (n_up_layers-i_up-1)]
+                p_emb, inputs['cld_interp_idx%d' % (n_up_layers - i_up - 1)]
             )
             f_decoder_i = self.rndla_up_stages[i_up](
                 torch.cat([ds_emb[-i_up - 2], f_interp_i], dim=1)
@@ -290,7 +311,7 @@ class FFB6D(nn.Module):
 
             # fuse rgb feature to point feature
             r2p_emb = self.random_sample(
-                rgb_emb0.reshape(bs, c, hr*wr), inputs['r2p_up_nei_idx%d' % i_up]
+                rgb_emb0.reshape(bs, c, hr * wr), inputs['r2p_up_nei_idx%d' % i_up]
             ).view(bs, c, -1, 1)
             r2p_emb = self.up_fuse_r2p_pre_layers[i_up](r2p_emb)
             p_emb = self.up_fuse_r2p_fuse_layers[i_up](
@@ -298,11 +319,9 @@ class FFB6D(nn.Module):
             )
 
         # final upsample layers:
-        rgb_emb = self.cnn_up_stages[n_up_layers-1](rgb_emb)
-        f_interp_i = self.nearest_interpolation(
-            p_emb, inputs['cld_interp_idx%d' % (0)]
-        )
-        p_emb = self.rndla_up_stages[n_up_layers-1](
+        rgb_emb = self.cnn_up_stages[n_up_layers - 1](rgb_emb)
+        f_interp_i = self.nearest_interpolation(p_emb, inputs['cld_interp_idx%d' % (0)])
+        p_emb = self.rndla_up_stages[n_up_layers - 1](
             torch.cat([ds_emb[0], f_interp_i], dim=1)
         ).squeeze(-1)
 
@@ -322,12 +341,10 @@ class FFB6D(nn.Module):
         pred_kp_ofs = self.kp_ofst_layer(rgbd_emb)
         pred_ctr_ofs = self.ctr_ofst_layer(rgbd_emb)
 
-        pred_kp_ofs = pred_kp_ofs.view(
-            bs, self.n_kps, 3, -1
-        ).permute(0, 1, 3, 2).contiguous()
-        pred_ctr_ofs = pred_ctr_ofs.view(
-            bs, 1, 3, -1
-        ).permute(0, 1, 3, 2).contiguous()
+        pred_kp_ofs = (
+            pred_kp_ofs.view(bs, self.n_kps, 3, -1).permute(0, 1, 3, 2).contiguous()
+        )
+        pred_ctr_ofs = pred_ctr_ofs.view(bs, 1, 3, -1).permute(0, 1, 3, 2).contiguous()
 
         # return rgbd_seg, pred_kp_of, pred_ctr_of
         end_points['pred_rgbd_segs'] = rgbd_segs
@@ -368,15 +385,14 @@ class DenseFusion(nn.Module):
 
 def main():
     from common import ConfigRandLA
+
     rndla_cfg = ConfigRandLA
 
     n_cls = 22
     model = FFB6D(n_cls, rndla_cfg.num_points, rndla_cfg)
     print(model)
 
-    print(
-        "model parameters:", sum(param.numel() for param in model.parameters())
-    )
+    print("model parameters:", sum(param.numel() for param in model.parameters()))
 
 
 if __name__ == "__main__":
